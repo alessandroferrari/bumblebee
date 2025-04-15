@@ -3,6 +3,7 @@
 import torch
 from losses import cross_entropy_loss
 
+
 class Trainer:
     def __init__(self, model, optimizer, train_dataloader, eval_dataloader, num_epochs, device, eval_freq=20):
         super().__init__()
@@ -27,7 +28,8 @@ class Trainer:
             target = target.to(self._device)
             num_batches_training = num_batches_training + 1
             predicted_logits = self._model.forward(input.to(self._device))
-            train_loss = train_loss + cross_entropy_loss(predicted_logits, target.to(self._device))
+            train_loss = train_loss + \
+                cross_entropy_loss(predicted_logits, target.to(self._device))
         train_loss = train_loss / num_batches_training
 
         eval_loss = 0.0
@@ -36,7 +38,8 @@ class Trainer:
             input = input.to(self._device)
             target = target.to(self._device)
             predicted_logits = self._model.forward(input.to(self._device))
-            eval_loss = eval_loss + cross_entropy_loss(predicted_logits, target.to(self._device))
+            eval_loss = eval_loss + \
+                cross_entropy_loss(predicted_logits, target.to(self._device))
             num_batches_eval = num_batches_eval + 1
         eval_loss = eval_loss / num_batches_eval
 
@@ -57,7 +60,7 @@ class Trainer:
                 self._optimizer.step()
                 self._iter_counter = self._iter_counter + 1
 
-            if (self._iter_counter % self._eval_freq)==0:
+            if (self._iter_counter % self._eval_freq) == 0:
                 print(f"Running eval for epoch {self._iter_counter}.")
                 train_loss, eval_loss = self.evaluate()
                 print(f"Train loss: {train_loss} - Eval loss: {eval_loss}.")

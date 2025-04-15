@@ -14,6 +14,7 @@ GPT_CONFIG_124M = {
     "qkv_bias": False
 }
 
+
 class GPTModel(nn.Module):
     def __init__(self, vocab_size, num_embeddings, num_transformer_blocks, num_heads, context_length, dropout_rate, ff_embeddings_multiplier=4):
         super().__init__()
@@ -25,7 +26,7 @@ class GPTModel(nn.Module):
                                                            num_heads=num_heads, context_length=context_length,
                                                            dropout_rate=dropout_rate,
                                                            ff_embeddings_multiplier=ff_embeddings_multiplier)
-                                                           for _ in range(num_transformer_blocks)])
+                                          for _ in range(num_transformer_blocks)])
         self.final_layer_norm = LayerNormalization(num_embeddings)
         self.output_linear = nn.Linear(num_embeddings, vocab_size, bias=False)
 
@@ -40,18 +41,24 @@ class GPTModel(nn.Module):
         logits = self.output_linear(x)
         return logits
 
+    def get_context_size(self):
+        return self.token_emb_layer.weight.shape[0]
+
+
 def generate_text_simple(model, idx, max_new_tokens, context_size):
     for _ in range(max_new_tokens):
-        idx_cond = idx[:, -context_size:] # include tokens up to the context size
+        # include tokens up to the context size
+        idx_cond = idx[:, -context_size:]
         with torch.no_grad():
             logits = model(idx_cond)
-        logits = logits[:, -1, :] # last generate token from the model
+        logits = logits[:, -1, :]  # last generate token from the model
         probas = torch.softmax(logits, dim=-1)
         idx_next = torch.argmax(probas, dim=-1, keepdim=True)
         idx = torch.cat((idx, idx_next), dim=-1)
     return idx
 
-if __name__=="__main__":
+
+if __name__ == "__main__":
     import tiktoken
     tokenizer = tiktoken.get_encoding("gpt2")
     start_context = "Hello, I am"
@@ -65,6 +72,7 @@ if __name__=="__main__":
                      context_length=GPT_CONFIG_124M["context_length"],
                      dropout_rate=GPT_CONFIG_124M["drop_rate"])
     model.eval()
-    out = generate_text_simple(model=model, idx=encoder_tensor, max_new_tokens=6, context_size=GPT_CONFIG_124M["context_length"])
+    out = generate_text_simple(model=model, idx=encoder_tensor,
+                               max_new_tokens=6, context_size=GPT_CONFIG_124M["context_length"])
     out_txt = tokenizer.decode(out.squeeze(0).tolist())
     print(out_txt)

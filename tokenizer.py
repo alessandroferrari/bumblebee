@@ -1,29 +1,41 @@
+import os
 import re
 import urllib.request
 
-UNK_TOKEN="<|unk|>"
-EOT_TOKEN="<|eot|>"
-EOS_TOKEN="<|eos|>"
+UNK_TOKEN = "<|unk|>"
+EOT_TOKEN = "<|eot|>"
+EOS_TOKEN = "<|eos|>"
+
+
+SAMPLE_BOOK_FILEPATH = "the-verdict.txt"
+
+
+def download_sample_book():
+    url = ("https://raw.githubusercontent.com/rasbt/"
+           "LLMs-from-scratch/main/ch02/01_main-chapter-code/"
+           "the-verdict.txt")
+    urllib.request.urlretrieve(url, SAMPLE_BOOK_FILEPATH)
 
 
 def get_sample_book():
-    url = ("https://raw.githubusercontent.com/rasbt/"
-           "LLMs-from-scratch/main/ch02/01_main-chapter-code/"
-            "the-verdict.txt")
-    file_path = "the-verdict.txt"
-    urllib.request.urlretrieve(url, file_path)
+    download_sample_book()
     return load_sample_book()
 
+
 def load_sample_book():
+    if not os.path.exists(SAMPLE_BOOK_FILEPATH):
+        download_sample_book()
     with open("the-verdict.txt", "r", encoding="utf-8") as f:
         raw_text = f.read()
     raw_text = raw_text + EOT_TOKEN
     return raw_text
 
+
 def split_text(text):
     preprocessed = re.split(r'([,.:;?_!"()\']|--|\s)', text)
     preprocessed = [item.strip() for item in preprocessed if item.strip()]
     return preprocessed
+
 
 def build_vocabulary(text):
     preprocessed = split_text(text)
@@ -36,10 +48,11 @@ def build_vocabulary(text):
         vocab[word] = i
     return vocab
 
+
 class SimpleTokenizerV2:
     def __init__(self, vocab):
         self.str_to_int = vocab
-        self.int_to_str = { i:s for s,i in vocab.items() }
+        self.int_to_str = {i: s for s, i in vocab.items()}
 
     def encode(self, text):
         preprocessed = split_text(text)
@@ -51,11 +64,12 @@ class SimpleTokenizerV2:
         text = " ".join([self.int_to_str[i] for i in ids])
         text = re.sub(r'\s+([,.:;?_!"()\'])', r'\1', text)
         return text
-    
+
     def __len__(self):
         return len(self.str_to_int)
 
-if __name__=="__main__":
+
+if __name__ == "__main__":
     raw_text = load_sample_book()
     vocab = build_vocabulary(raw_text)
     tokenizer = SimpleTokenizerV2(vocab)

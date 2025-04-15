@@ -21,14 +21,18 @@ GPT_CONFIG_124M = {
     "qkv_bias": False
 }
 
+
 def text_to_token_ids(txt, tokenizer):
-    encoded = tokenizer.encode(txt, allow_special={'<|endoftext|>'})
+    encoded = tokenizer.encode(txt)
     encoded_tensor = torch.tensor(encoded).unsqueeze(0)
     return encoded_tensor
+
 
 def token_ids_to_text(tokens, tokenizer):
     encoded_flat_list = tokens.squeeze(0).tolist()
     decoded_text = tokenizer.decode(encoded_flat_list)
+    return decoded_text
+
 
 def load_train_eval_text():
     raw_text = load_sample_book()
@@ -37,7 +41,57 @@ def load_train_eval_text():
     return train_txt, eval_txt
 
 
-if __name__=="__main__":
+def predict_next_token(model, encoded_tokens):
+    model.eval()
+    with torch.no_grad():
+        predicted_logits = model(encoded_tokens)
+    # if encoded tokens do not have the batch size in the shape, add a unary batch dim
+    if len(predicted_logits.shape) == 2:
+        context_size, vocab_size = predicted_logits.shape
+        predicted_logits = predicted_logits.view(1, context_size, vocab_size)
+    b, context_size, vocab_size = predicted_logits.shape
+    # only the last token is the newly produced one
+    new_tokens_logits = predicted_logits[:, -1, :]
+    new_token_ids = torch.argmax(new_tokens_logits, dim=1, keepdim=True)
+    return new_token_ids
+
+
+def predict_next_token_prob(model, encoded_tokens):
+    model.eval()
+    with torch.no_grad():
+        predicted_logits = model(encoded_tokens)
+    # if encoded tokens do not have the batch size in the shape, add a unary batch dim
+    if len(predicted_logits.shape) == 2:
+        context_size, vocab_size = predicted_logits.shape
+        predicted_logits = predicted_logits.view(1, context_size, vocab_size)
+    b, context_size, vocab_size = predicted_logits.shape
+    # only the last token is the newly produced one
+    predicted_last = predicted_logits[:, -1, :]  # shape (b, vocab_size)
+    TOP_TOKEN_K = 5
+    token_logits_topn, token_indeces_topn = torch.topk(
+        predicted_last, k=TOP_TOKEN_K, dim=1)
+    new_tokens_logits = torch.softmax(token_logits_topn, dim=1)
+    new_token_ids = torch.multinomial(new_tokens_logits, num_samples=1)
+    return token_indeces_topn[:, new_token_ids.flatten().tolist()]
+
+
+def generate(model, tokenizer, device, start_context, max_new_tokens):
+    context_size = model.get_context_size()
+    encoded = text_to_token_ids(start_context, tokenizer).to(device)
+    input_tokens = encoded
+    for _ in range(max_new_tokens):
+        if input_tokens.shape[1] > context_size:
+            input_tokens = input_tokens[:, -context_size:]
+        next_id = predict_next_token_prob(model, input_tokens)
+        input_tokens = input_tokens[:, 1:]
+        input_tokens = torch.cat((input_tokens, next_id), dim=-1)
+        next_ids = torch.cat((input_tokens, next_id), dim=-1)
+    next_words = token_ids_to_text(next_ids, tokenizer)
+    generated_sentence = f"{start_context}{next_words}"
+    return generated_sentence
+
+
+if __name__ == "__main__":
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -63,10 +117,17 @@ if __name__=="__main__":
                      context_length=GPT_CONFIG_124M["context_length"],
                      dropout_rate=GPT_CONFIG_124M["drop_rate"])
     model.to(device)
-    optimizer = torch.optim.AdamW(model.parameters(), lr=0.0004, weight_decay=0.1)
-    NUM_EPOCHS = 10
+    optimizer = torch.optim.AdamW(
+        model.parameters(), lr=0.0004, weight_decay=0.1)
+    NUM_EPOCHS = 20
     EVAL_FREQ = 1
-    trainer = Trainer(model, optimizer, train_dataset, eval_dataset, NUM_EPOCHS, device, eval_freq=EVAL_FREQ)
+    trainer = Trainer(model, optimizer, train_dataset,
+                      eval_dataset, NUM_EPOCHS, device, eval_freq=EVAL_FREQ)
     train_losses, eval_losses = trainer.train()
 
     plot_losses(train_losses, eval_losses, EVAL_FREQ)
+
+    for _ in range(10):
+        response = generate(model, tokenizer, device,
+                            start_context="Every effort moves you", max_new_tokens=10)
+        print(f"Response: {response}")

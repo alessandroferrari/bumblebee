@@ -10,17 +10,21 @@ inputs = torch.tensor(
      [0.22, 0.58, 0.33],  # with    (x^4)
      [0.77, 0.25, 0.11],  # one    (x^5)
      [0.05, 0.80, 0.55]   # step    (x^6)
-    ]
+     ]
 )
 
 # Simplified self-attention mechanism, without trainable weights
+
+
 def simpliflied_self_attention(inputs):
     attn_weights = torch.matmul(inputs, inputs.T)
     attn_weights = torch.nn.functional.softmax(attn_weights, dim=-1)
     return torch.matmul(attn_weights, inputs)
 
+
 D_IN = inputs.shape[1]
 D_OUT = 2
+
 
 def self_attention(inputs, W_query, W_key, W_value):
     # Compute query, key, and value matrices
@@ -32,6 +36,7 @@ def self_attention(inputs, W_query, W_key, W_value):
     d_k = key.shape[-1]
     attn_weights = torch.nn.functional.softmax(attn_weights / d_k**0.5, dim=-1)
     return torch.matmul(attn_weights, value)
+
 
 class SelfAttention(torch.nn.Module):
     def __init__(self, d_in, d_out, qkv_bias=False):
@@ -46,8 +51,10 @@ class SelfAttention(torch.nn.Module):
         value = self.W_value(inputs)
 
         attn_weights = torch.matmul(query, key.T)
-        attn_weights = torch.nn.functional.softmax(attn_weights / key.shape[-1]**0.5, dim=-1)
+        attn_weights = torch.nn.functional.softmax(
+            attn_weights / key.shape[-1]**0.5, dim=-1)
         return torch.matmul(attn_weights, value)
+
 
 class CausalSelfAttention(torch.nn.Module):
     def __init__(self, d_in, d_out, context_length, dropout, qkv_bias=False):
@@ -59,7 +66,7 @@ class CausalSelfAttention(torch.nn.Module):
         self.register_buffer(
             'mask',
             torch.triu(torch.ones((context_length, context_length)),
-            diagonal=1)
+                       diagonal=1)
         )
 
     def forward(self, inputs):
@@ -67,11 +74,13 @@ class CausalSelfAttention(torch.nn.Module):
         key = self.W_key(inputs)
         value = self.W_value(inputs)
 
-        attn_weights = torch.matmul(query, key.transpose(-2,-1))
+        attn_weights = torch.matmul(query, key.transpose(-2, -1))
         attn_weights = attn_weights.masked_fill(self.mask.bool(), -torch.inf)
-        attn_weights = torch.nn.functional.softmax(attn_weights / key.shape[-1]**0.5, dim=-1)
+        attn_weights = torch.nn.functional.softmax(
+            attn_weights / key.shape[-1]**0.5, dim=-1)
         attn_weights = self.dropout(attn_weights)
         return torch.matmul(attn_weights, value)
+
 
 class MultiHeadSelfAttention(torch.nn.Module):
     def __init__(self, d_in, d_out, n_heads, context_length, dropout):
@@ -86,19 +95,24 @@ class MultiHeadSelfAttention(torch.nn.Module):
         self.register_buffer(
             'mask',
             torch.triu(torch.ones((context_length, context_length)),
-            diagonal=1)
+                       diagonal=1)
         )
         self.out_projection = torch.nn.Linear(d_out, d_out)
 
     def forward(self, inputs):
         b, num_tokens, d_in = inputs.shape
-        self.query = self.W_query(inputs).view(b, num_tokens, self.num_heads, self.head_dim).transpose(1, 2)
-        self.key = self.W_key(inputs).view(b, num_tokens, self.num_heads, self.head_dim).transpose(1, 2)
-        self.value = self.W_value(inputs).view(b, num_tokens, self.num_heads, self.head_dim).transpose(1, 2)
+        self.query = self.W_query(inputs).view(
+            b, num_tokens, self.num_heads, self.head_dim).transpose(1, 2)
+        self.key = self.W_key(inputs).view(
+            b, num_tokens, self.num_heads, self.head_dim).transpose(1, 2)
+        self.value = self.W_value(inputs).view(
+            b, num_tokens, self.num_heads, self.head_dim).transpose(1, 2)
 
-        attn_weights = torch.matmul(self.query, self.key.transpose(-2,-1))
-        attn_weights = attn_weights.masked_fill(self.mask[:num_tokens,:num_tokens].bool(), -torch.inf)
-        attn_weights = torch.nn.functional.softmax(attn_weights / self.head_dim**0.5, dim=-1)
+        attn_weights = torch.matmul(self.query, self.key.transpose(-2, -1))
+        attn_weights = attn_weights.masked_fill(
+            self.mask[:num_tokens, :num_tokens].bool(), -torch.inf)
+        attn_weights = torch.nn.functional.softmax(
+            attn_weights / self.head_dim**0.5, dim=-1)
         attn_weights = self.dropout(attn_weights)
 
         context_vec = torch.matmul(attn_weights, self.value).transpose(1, 2)
@@ -108,8 +122,7 @@ class MultiHeadSelfAttention(torch.nn.Module):
         return context_vec
 
 
-
-if __name__=="__main__":
+if __name__ == "__main__":
     outputs = simpliflied_self_attention(inputs)
     print(outputs)
 
@@ -133,7 +146,8 @@ if __name__=="__main__":
     print(outputs)
 
     torch.manual_seed(1254)
-    causal_self_attention_layer = CausalSelfAttention(D_IN, D_OUT, inputs.shape[0], 0.2)
+    causal_self_attention_layer = CausalSelfAttention(
+        D_IN, D_OUT, inputs.shape[0], 0.2)
     outputs = causal_self_attention_layer(inputs)
     print(outputs)
 
