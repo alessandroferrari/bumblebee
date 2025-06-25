@@ -7,7 +7,7 @@ EOT_TOKEN = "<|eot|>"
 EOS_TOKEN = "<|eos|>"
 
 
-SAMPLE_BOOK_FILEPATH = "the-verdict.txt"
+SAMPLE_BOOK_FILEPATH = "datasets/the-verdict.txt"
 
 
 def download_sample_book():
@@ -25,7 +25,7 @@ def get_sample_book():
 def load_sample_book():
     if not os.path.exists(SAMPLE_BOOK_FILEPATH):
         download_sample_book()
-    with open("the-verdict.txt", "r", encoding="utf-8") as f:
+    with open(SAMPLE_BOOK_FILEPATH, "r", encoding="utf-8") as f:
         raw_text = f.read()
     raw_text = raw_text + EOT_TOKEN
     return raw_text

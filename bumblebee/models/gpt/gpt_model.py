@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 import torch
 import torch.nn as nn
-from blocks import LayerNormalization, TransformerBlock
+from bumblebee.core.llm_blocks.blocks import LayerNormalization, TransformerBlock
 
 GPT_CONFIG_124M = {
     "vocab_size": 50257,
@@ -16,16 +16,17 @@ GPT_CONFIG_124M = {
 
 
 class GPTModel(nn.Module):
-    def __init__(self, vocab_size, num_embeddings, num_transformer_blocks, num_heads, context_length, dropout_rate, ff_embeddings_multiplier=4):
+    def __init__(self, vocab_size, num_embeddings, num_transformer_blocks, num_heads, context_length, dropout_rate, ff_embeddings_multiplier=4, qkv_bias=False):
         super().__init__()
         self.num_embeddings = num_embeddings
         self.token_emb_layer = nn.Embedding(vocab_size, num_embeddings)
-        self.pos_enc_layer = nn.Embedding(num_embeddings, num_embeddings)
+        self.pos_enc_layer = nn.Embedding(context_length, num_embeddings)
         self.dropout_layer = nn.Dropout(dropout_rate)
-        self.trt_blocks = nn.Sequential(*[TransformerBlock(num_embeddings=num_embeddings,
+        self.trf_blocks = nn.Sequential(*[TransformerBlock(num_embeddings=num_embeddings,
                                                            num_heads=num_heads, context_length=context_length,
                                                            dropout_rate=dropout_rate,
-                                                           ff_embeddings_multiplier=ff_embeddings_multiplier)
+                                                           ff_embeddings_multiplier=ff_embeddings_multiplier,
+                                                           qkv_bias=qkv_bias)
                                           for _ in range(num_transformer_blocks)])
         self.final_layer_norm = LayerNormalization(num_embeddings)
         self.output_linear = nn.Linear(num_embeddings, vocab_size, bias=False)
@@ -36,7 +37,7 @@ class GPTModel(nn.Module):
         pos_emb = self.pos_enc_layer(torch.arange(seq_length, device=x.device))
         x = token_emb + pos_emb
         x = self.dropout_layer(x)
-        x = self.trt_blocks(x)
+        x = self.trf_blocks(x)
         x = self.final_layer_norm(x)
         logits = self.output_linear(x)
         return logits

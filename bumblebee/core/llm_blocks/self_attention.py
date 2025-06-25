@@ -83,14 +83,14 @@ class CausalSelfAttention(torch.nn.Module):
 
 
 class MultiHeadSelfAttention(torch.nn.Module):
-    def __init__(self, d_in, d_out, n_heads, context_length, dropout):
+    def __init__(self, d_in, d_out, n_heads, context_length, dropout, qkv_bias=False):
         super(MultiHeadSelfAttention, self).__init__()
         self.num_heads = n_heads
         self.head_dim = d_out // n_heads
         self.d_out = d_out
-        self.W_query = torch.nn.Linear(d_in, d_out, bias=False)
-        self.W_key = torch.nn.Linear(d_in, d_out, bias=False)
-        self.W_value = torch.nn.Linear(d_in, d_out, bias=False)
+        self.W_query = torch.nn.Linear(d_in, d_out, bias=qkv_bias)
+        self.W_key = torch.nn.Linear(d_in, d_out, bias=qkv_bias)
+        self.W_value = torch.nn.Linear(d_in, d_out, bias=qkv_bias)
         self.dropout = torch.nn.Dropout(dropout)
         self.register_buffer(
             'mask',

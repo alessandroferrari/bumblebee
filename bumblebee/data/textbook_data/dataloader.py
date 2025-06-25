@@ -1,4 +1,4 @@
-from tokenizer import load_sample_book, SimpleTokenizerV2, build_vocabulary
+from bumblebee.data.tokenizer import load_sample_book, SimpleTokenizerV2, build_vocabulary
 import tiktoken
 import torch
 from torch.utils.data import Dataset, DataLoader

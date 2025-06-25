@@ -1,8 +1,7 @@
 #!/usr/bin/python3
 # -*- coding: utf-8 -*-
 import torch
-from losses import cross_entropy_loss
-
+from bumblebee.losses.losses import cross_entropy_loss
 
 class Trainer:
     def __init__(self, model, optimizer, train_dataloader, eval_dataloader, num_epochs, device, eval_freq=20):
