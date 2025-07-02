@@ -83,7 +83,14 @@ class CausalSelfAttention(torch.nn.Module):
 
 
 class MultiHeadSelfAttention(torch.nn.Module):
-    def __init__(self, d_in, d_out, n_heads, context_length, dropout, qkv_bias=False):
+    def __init__(
+            self,
+            d_in,
+            d_out,
+            n_heads,
+            context_length,
+            dropout,
+            qkv_bias=False):
         super(MultiHeadSelfAttention, self).__init__()
         self.num_heads = n_heads
         self.head_dim = d_out // n_heads

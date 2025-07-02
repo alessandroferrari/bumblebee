@@ -17,6 +17,7 @@ from tqdm import tqdm
 # Import from local files
 from bumblebee.models.gpt.gpt_model import GPTModel
 
+
 def download_and_load_gpt2(model_size, models_dir):
     # Validate model size
     allowed_sizes = ("124M", "355M", "774M", "1558M")
@@ -64,7 +65,8 @@ def download_file(url, destination):
         block_size = 1024  # 1 Kilobyte
 
         # Initialize the progress bar with total file size
-        progress_bar_description = os.path.basename(url)  # Extract filename from URL
+        progress_bar_description = os.path.basename(
+            url)  # Extract filename from URL
         with tqdm(total=file_size, unit="iB", unit_scale=True, desc=progress_bar_description) as progress_bar:
             # Open the destination file in binary write mode
             with open(destination, "wb") as file:
@@ -108,13 +110,15 @@ def load_gpt2_params_from_tf_ckpt(ckpt_path, settings):
 
 def assign(left, right):
     if left.shape != right.shape:
-        raise ValueError(f"Shape mismatch. Left: {left.shape}, Right: {right.shape}")
+        raise ValueError(
+            f"Shape mismatch. Left: {left.shape}, Right: {right.shape}")
     return torch.nn.Parameter(torch.tensor(right))
 
 
 def load_weights_into_gpt(gpt, params):
     gpt.pos_enc_layer.weight = assign(gpt.pos_enc_layer.weight, params["wpe"])
-    gpt.token_emb_layer.weight = assign(gpt.token_emb_layer.weight, params["wte"])
+    gpt.token_emb_layer.weight = assign(
+        gpt.token_emb_layer.weight, params["wte"])
 
     for b in range(len(params["blocks"])):
         q_w, k_w, v_w = np.split(
@@ -168,8 +172,8 @@ def load_weights_into_gpt(gpt, params):
             gpt.trf_blocks[b].layer_norm_ff.shift,
             params["blocks"][b]["ln_2"]["b"])
 
-    gpt.final_layer_norm.scale = assign(gpt.final_layer_norm.scale, params["g"])
-    gpt.final_layer_norm.shift = assign(gpt.final_layer_norm.shift, params["b"])
+    gpt.final_layer_norm.scale = assign(
+        gpt.final_layer_norm.scale, params["g"])
+    gpt.final_layer_norm.shift = assign(
+        gpt.final_layer_norm.shift, params["b"])
     gpt.output_linear.weight = assign(gpt.output_linear.weight, params["wte"])
-
-

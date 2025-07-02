@@ -34,22 +34,39 @@ class GELU(nn.Module):
 class FeedForward(nn.Module):
     def __init__(self, num_embeddings, emb_mul=4.0):
         super().__init__()
-        self.ffnet = nn.Sequential(nn.Linear(num_embeddings, emb_mul * num_embeddings),
-                                   GELU(),
-                                   nn.Linear(num_embeddings * emb_mul, num_embeddings))
+        self.ffnet = nn.Sequential(
+            nn.Linear(
+                num_embeddings,
+                emb_mul *
+                num_embeddings),
+            GELU(),
+            nn.Linear(
+                num_embeddings *
+                emb_mul,
+                num_embeddings))
 
     def forward(self, x):
         return self.ffnet(x)
 
 
 class TransformerBlock(nn.Module):
-    def __init__(self, num_embeddings, num_heads, context_length, dropout_rate, ff_embeddings_multiplier=4, qkv_bias=False):
+    def __init__(
+            self,
+            num_embeddings,
+            num_heads,
+            context_length,
+            dropout_rate,
+            ff_embeddings_multiplier=4,
+            qkv_bias=False):
         super().__init__()
         self.layer_norm_mha = LayerNormalization(num_embeddings=num_embeddings)
-        self.mh_self_attn = MultiHeadSelfAttention(d_in=num_embeddings, d_out=num_embeddings,
-                                                   n_heads=num_heads, context_length=context_length,
-                                                   dropout=dropout_rate,
-                                                   qkv_bias=qkv_bias)
+        self.mh_self_attn = MultiHeadSelfAttention(
+            d_in=num_embeddings,
+            d_out=num_embeddings,
+            n_heads=num_heads,
+            context_length=context_length,
+            dropout=dropout_rate,
+            qkv_bias=qkv_bias)
         self.dropout_mha = nn.Dropout(p=dropout_rate)
         self.layer_norm_ff = LayerNormalization(num_embeddings=num_embeddings)
         self.ff = FeedForward(num_embeddings=num_embeddings,

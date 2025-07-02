@@ -16,18 +16,31 @@ GPT_CONFIG_124M = {
 
 
 class GPTModel(nn.Module):
-    def __init__(self, vocab_size, num_embeddings, num_transformer_blocks, num_heads, context_length, dropout_rate, ff_embeddings_multiplier=4, qkv_bias=False):
+    def __init__(
+            self,
+            vocab_size,
+            num_embeddings,
+            num_transformer_blocks,
+            num_heads,
+            context_length,
+            dropout_rate,
+            ff_embeddings_multiplier=4,
+            qkv_bias=False):
         super().__init__()
         self.num_embeddings = num_embeddings
         self.token_emb_layer = nn.Embedding(vocab_size, num_embeddings)
         self.pos_enc_layer = nn.Embedding(context_length, num_embeddings)
         self.dropout_layer = nn.Dropout(dropout_rate)
-        self.trf_blocks = nn.Sequential(*[TransformerBlock(num_embeddings=num_embeddings,
-                                                           num_heads=num_heads, context_length=context_length,
-                                                           dropout_rate=dropout_rate,
-                                                           ff_embeddings_multiplier=ff_embeddings_multiplier,
-                                                           qkv_bias=qkv_bias)
-                                          for _ in range(num_transformer_blocks)])
+        self.trf_blocks = nn.Sequential(
+            *
+            [
+                TransformerBlock(
+                    num_embeddings=num_embeddings,
+                    num_heads=num_heads,
+                    context_length=context_length,
+                    dropout_rate=dropout_rate,
+                    ff_embeddings_multiplier=ff_embeddings_multiplier,
+                    qkv_bias=qkv_bias) for _ in range(num_transformer_blocks)])
         self.final_layer_norm = LayerNormalization(num_embeddings)
         self.output_linear = nn.Linear(num_embeddings, vocab_size, bias=False)
 
@@ -73,7 +86,10 @@ if __name__ == "__main__":
                      context_length=GPT_CONFIG_124M["context_length"],
                      dropout_rate=GPT_CONFIG_124M["drop_rate"])
     model.eval()
-    out = generate_text_simple(model=model, idx=encoder_tensor,
-                               max_new_tokens=6, context_size=GPT_CONFIG_124M["context_length"])
+    out = generate_text_simple(
+        model=model,
+        idx=encoder_tensor,
+        max_new_tokens=6,
+        context_size=GPT_CONFIG_124M["context_length"])
     out_txt = tokenizer.decode(out.squeeze(0).tolist())
     print(out_txt)

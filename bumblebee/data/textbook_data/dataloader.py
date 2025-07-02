@@ -25,8 +25,15 @@ class GPTDatasetV1(Dataset):
         return self.input_ids[idx], self.target_ids[idx]
 
 
-def create_dataloader(txt, tokenizer, batch_size=4, max_length=256, stride=128, shuffle=True,
-                      drop_last=True, num_workers=0):
+def create_dataloader(
+        txt,
+        tokenizer,
+        batch_size=4,
+        max_length=256,
+        stride=128,
+        shuffle=True,
+        drop_last=True,
+        num_workers=0):
 
     dataset = GPTDatasetV1(txt, tokenizer, max_length, stride)
     dataloader = DataLoader(
@@ -45,8 +52,13 @@ if __name__ == "__main__":
     MAX_LENGTH = 4
     vocab = build_vocabulary(raw_text)
     tokenizer = SimpleTokenizerV2(vocab)
-    dataloader = create_dataloader(raw_text, tokenizer, batch_size=BATCH_SIZE,
-                                   max_length=MAX_LENGTH, stride=MAX_LENGTH, shuffle=False)
+    dataloader = create_dataloader(
+        raw_text,
+        tokenizer,
+        batch_size=BATCH_SIZE,
+        max_length=MAX_LENGTH,
+        stride=MAX_LENGTH,
+        shuffle=False)
     data_iter = iter(dataloader)
     first_batch = next(data_iter)
     print(first_batch)
