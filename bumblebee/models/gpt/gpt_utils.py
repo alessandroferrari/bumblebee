@@ -171,3 +171,5 @@ def load_weights_into_gpt(gpt, params):
     gpt.final_layer_norm.scale = assign(gpt.final_layer_norm.scale, params["g"])
     gpt.final_layer_norm.shift = assign(gpt.final_layer_norm.shift, params["b"])
     gpt.output_linear.weight = assign(gpt.output_linear.weight, params["wte"])
+
+
