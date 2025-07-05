@@ -11,6 +11,7 @@ class Trainer:
             optimizer,
             train_dataloader,
             eval_dataloader,
+            loss_func,
             num_epochs,
             device,
             eval_freq=20):
@@ -19,6 +20,7 @@ class Trainer:
         self._optimizer = optimizer
         self._train_loader = train_dataloader
         self._eval_loader = eval_dataloader
+        self._loss_func = loss_func
         self._iter_counter = 0
         self._num_epochs = num_epochs
         self._eval_freq = eval_freq
@@ -26,50 +28,47 @@ class Trainer:
         self.train_losses = []
         self.eval_losses = []
 
-    def evaluate(self):
+    def _compute_overall_loss(self, data_loader):
         self._model.eval()
+        loss = 0.0
+        num_batches = 0
+        for input_batch, target_batch in data_loader:
+            input_batch = input_batch.to(self._device)
+            target_batch = target_batch.to(self._device)
+            with torch.no_grad():
+                predicted_logits = self._model.forward(input_batch)
+                loss = loss + \
+                    self._loss_func(predicted_logits, target_batch, self._device)
+            num_batches = num_batches + 1
+        loss = loss / num_batches
+        return loss
 
-        train_loss = 0.0
-        num_batches_training = 0
-        for input, target in self._train_loader:
-            input = input.to(self._device)
-            target = target.to(self._device)
-            num_batches_training = num_batches_training + 1
-            predicted_logits = self._model.forward(input.to(self._device))
-            train_loss = train_loss + \
-                cross_entropy_loss(predicted_logits, target.to(self._device))
-        train_loss = train_loss / num_batches_training
-
-        eval_loss = 0.0
-        num_batches_eval = 0
-        for input, target in self._eval_loader:
-            input = input.to(self._device)
-            target = target.to(self._device)
-            predicted_logits = self._model.forward(input.to(self._device))
-            eval_loss = eval_loss + \
-                cross_entropy_loss(predicted_logits, target.to(self._device))
-            num_batches_eval = num_batches_eval + 1
-        eval_loss = eval_loss / num_batches_eval
+    def evaluate(self):
+        train_loss = self._compute_overall_loss(self._train_loader)
+        eval_loss = self._compute_overall_loss(self._eval_loader)
 
         return train_loss, eval_loss
 
     def train(self):
+        num_iter_per_epoch = len(self._train_loader)
         for epoch in range(self._num_epochs):
-            print(f"Running training for epoch {epoch}.")
+            print(
+                f"Running training for epoch {epoch + 1} / {self._num_epochs} .")
             self._model.train()
             for input, target in self._train_loader:
                 input = input.to(self._device)
                 target = target.to(self._device)
                 self._optimizer.zero_grad()
                 predicted_logits = self._model.forward(input)
-                loss = cross_entropy_loss(predicted_logits, target)
-                print(f"Training loss: {loss.item()}.")
+                loss = self._loss_func(predicted_logits, target, self._device)
+                print(
+                    f"Epoch: {epoch + 1} / {self._num_epochs} - Iter: {self._iter_counter + 1} / {num_iter_per_epoch * self._num_epochs} - Training loss: {loss.item()}.")
                 loss.backward()
                 self._optimizer.step()
                 self._iter_counter = self._iter_counter + 1
 
             if (self._iter_counter % self._eval_freq) == 0:
-                print(f"Running eval for epoch {self._iter_counter}.")
+                print(f"Running eval for epoch {epoch + 1}.")
                 train_loss, eval_loss = self.evaluate()
                 print(f"Train loss: {train_loss} - Eval loss: {eval_loss}.")
                 self.train_losses.append(train_loss.to("cpu").item())

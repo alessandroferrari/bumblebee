@@ -1,8 +1,7 @@
 #!/usr/bin/python3
 # -*- coding: utf-8 -*-
 import argparse
-from bumblebee.data.tokenizer import load_sample_book
-from bumblebee.data.textbook_data.dataloader import create_dataloader
+from bumblebee.data.spam_classification.dataloader import create_dataloader
 from bumblebee.models.gpt.gpt_model import GPTModel, generate_text_simple
 from bumblebee.losses.losses import cross_entropy_loss
 import tiktoken
@@ -10,17 +9,14 @@ import torch
 from bumblebee.core.infer import generate
 from bumblebee.core.trainer import Trainer
 from bumblebee.losses.viz_utils import plot_losses
+from pathlib import Path
+import os
 
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Pretrain GPT2 from scratch from a small sample text.")
+        description="Finetune GPT2 to classify SMS spam.")
     # Training params
-    parser.add_argument(
-        "--train_eval_split",
-        default=0.9,
-        type=float,
-        help="How to split between training and validation set. Number included between 0.7 and 0.9.")
     parser.add_argument(
         "--device",
         "-d",
@@ -47,7 +43,7 @@ def parse_args():
     parser.add_argument(
         "--lr",
         type=float,
-        default=0.0004,
+        default=0.00005,
         help="Learning rate.")
     parser.add_argument(
         "--weight_decay",
@@ -55,32 +51,6 @@ def parse_args():
         default=0.1,
         help="Weight decay to use during training.")
 
-    # Text eval sample params
-    parser.add_argument(
-        "--input_prompt",
-        "-i",
-        default="Every effort moves you",
-        help="Input prompt to provide to the network",
-        type=str)
-    parser.add_argument(
-        "--temperature",
-        "-t",
-        default=0.0,
-        type=float,
-        help="Temperature for network decoding. 0 temperature is " +
-        " deterministic greedy decoding. Higher temperatures correspond to more variety on network results generation.")
-    parser.add_argument(
-        "--n_tokens",
-        "-n",
-        default=50,
-        type=int,
-        help="Number of tokens to generate per generation.")
-    parser.add_argument(
-        "--n_repetitions",
-        "-r",
-        default=1,
-        type=int,
-        help="How many times repeat inference.")
     parser.add_argument(
         "--export_to_onnx",
         "-e",
@@ -105,18 +75,35 @@ GPT_CONFIG_124M = {
     "qkv_bias": False
 }
 
+DATASET_BASEDIR = Path(__file__).parent.parent.parent.parent / \
+    "datasets" / "spam_classification"
+TRAIN_DATA_PATH = os.path.join(DATASET_BASEDIR, "train.csv")
+VAL_DATA_PATH = os.path.join(DATASET_BASEDIR, "validation.csv")
+TEST_DATA_PATH = os.path.join(DATASET_BASEDIR, "test.csv")
 
-def load_train_eval_text(train_eval_split=0.7):
-    raw_text = load_sample_book()
-    train_txt = raw_text[:int(train_eval_split * len(raw_text))]
-    eval_txt = raw_text[int(train_eval_split * len(raw_text)):]
-    return train_txt, eval_txt
 
-
-def pretraining_batch_loss(logits_batch, target_batch, device):
-    logits_batch = logits_batch.to(device)
+def spam_classification_batch_loss(activation_batch, target_batch, device):
     target_batch = target_batch.to(device)
-    return cross_entropy_loss(logits_batch, target_batch.to(device))
+    activation_batch = activation_batch.to(device)
+    logits_batch = torch.softmax(activation_batch[:, -1, :], dim=-1)
+    # only keep the logits of the last token output by gpt2
+    loss = torch.nn.functional.cross_entropy(logits_batch, target_batch)
+    return loss
+
+
+def classification_accuracy(data_loader, model):
+    correct_samples = 0.0
+    samples = 0.0
+    for input_batch, target_batch in data_loader:
+        input_batch = input_batch.to(device)
+        target_batch = target_batch.to(device)
+        with torch.no_grad():
+            logits = model(input_batch)[:, -1, :]
+        predicted_logits = torch.argmax(logits, dim=-1)
+        samples += logits.shape[0]
+        correct_samples += (predicted_logits == target_batch).sum().item()
+    accuracy = correct_samples / samples
+    return accuracy
 
 
 if __name__ == "__main__":
@@ -128,30 +115,26 @@ if __name__ == "__main__":
     else:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    train_txt, eval_txt = load_train_eval_text(
-        train_eval_split=args.train_eval_split)
-
     tokenizer = tiktoken.get_encoding("gpt2")
 
-    train_dataset = create_dataloader(
-        txt=train_txt,
-        tokenizer=tokenizer,
-        batch_size=args.batch_size,
-        max_length=GPT_CONFIG_124M["context_length"],
-        stride=GPT_CONFIG_124M["context_length"],
-        shuffle=True,
-        drop_last=True)
-    eval_dataset = create_dataloader(
-        txt=eval_txt,
-        tokenizer=tokenizer,
-        batch_size=args.batch_size,
-        max_length=GPT_CONFIG_124M["context_length"],
-        stride=GPT_CONFIG_124M["context_length"],
-        shuffle=False,
-        drop_last=False)
+    train_dataloader = create_dataloader(csv_file=TRAIN_DATA_PATH,
+                                         tokenizer=tokenizer,
+                                         batch_size=args.batch_size,
+                                         shuffle=True,
+                                         drop_last=True)
+    eval_dataloader = create_dataloader(csv_file=VAL_DATA_PATH,
+                                        tokenizer=tokenizer,
+                                        batch_size=args.batch_size,
+                                        shuffle=False,
+                                        drop_last=False)
+    test_dataloader = create_dataloader(csv_file=TEST_DATA_PATH,
+                                        tokenizer=tokenizer,
+                                        batch_size=args.batch_size,
+                                        shuffle=False,
+                                        drop_last=False)
 
-    print(f"Number of batches training dataloader: {len(train_dataset)}")
-    print(f"Number of batches eval dataloader: {len(eval_dataset)}")
+    print(f"Number of batches training dataloader: {len(train_dataloader)}")
+    print(f"Number of batches eval dataloader: {len(test_dataloader)}")
 
     torch.manual_seed(123)
     model = GPTModel(num_embeddings=GPT_CONFIG_124M['emb_dim'],
@@ -161,29 +144,34 @@ if __name__ == "__main__":
                      context_length=GPT_CONFIG_124M["context_length"],
                      dropout_rate=GPT_CONFIG_124M["drop_rate"])
     model.to(device)
+    # Freezing the model layers of the pretrained transformer for finetuning
+    for param in model.parameters():
+        param.require_grad = False
+    for param in model.trf_blocks[-1].parameters():
+        param.requires_grad = True
+
+    num_embeddings = model.output_linear.weight.shape[1]
+    NUM_CLASSES = 2
+    model.output_linear = torch.nn.Linear(
+        num_embeddings, NUM_CLASSES, device=device)
     optimizer = torch.optim.AdamW(
         model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
 
     trainer = Trainer(
         model,
         optimizer,
-        train_dataset,
-        eval_dataset,
-        pretraining_batch_loss,
+        train_dataloader,
+        eval_dataloader,
+        spam_classification_batch_loss,
         args.num_epochs,
         device,
         eval_freq=args.eval_freq)
     train_losses, eval_losses = trainer.train()
 
-    plot_losses(train_losses, eval_losses, args.eval_freq)
+    accuracy = classification_accuracy(test_dataloader, model)
+    print(f"Testing accuracy: {accuracy:.4f}")
 
-    model.eval()
-    for _ in range(args.n_repetitions):
-        response = generate(model, tokenizer, device,
-                            start_context=args.input_prompt,
-                            max_new_tokens=args.n_tokens,
-                            temperature=args.temperature)
-        print(f"Response: {response}")
+    plot_losses(train_losses, eval_losses, args.eval_freq)
 
     if args.export_to_onnx:
         export_to_onnx(
