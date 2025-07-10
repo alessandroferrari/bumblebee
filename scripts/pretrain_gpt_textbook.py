@@ -10,7 +10,7 @@ import torch
 from bumblebee.core.infer import generate
 from bumblebee.core.trainer import Trainer
 from bumblebee.losses.viz_utils import plot_losses
-
+from bumblebee.core.utils import export_to_onnx
 
 def parse_args():
     parser = argparse.ArgumentParser(
@@ -35,12 +35,12 @@ def parse_args():
         "--batch_size",
         "-b",
         type=int,
-        default=2,
+        default=8,
         help="Batch size to use for training. A larger batch size requires more memory.")
     parser.add_argument(
         "--num_epochs",
         type=int,
-        default=10,
+        default=4,
         help="Number of epochs to run training.")
     parser.add_argument("--eval_freq", type=int, default=1,
                         help="How often to run evaluation.")
@@ -188,7 +188,7 @@ if __name__ == "__main__":
     if args.export_to_onnx:
         export_to_onnx(
             model,
-            PRETRAINED_GPT_MODEL_CONFIG["context_length"],
-            PRETRAINED_GPT_MODEL_CONFIG["vocab_size"],
+            GPT_CONFIG_124M["context_length"],
+            GPT_CONFIG_124M["vocab_size"],
             args.onnx_output_path,
             device)
