@@ -1,25 +1,32 @@
 #!/usr/bin/python3
 # -*- coding: utf-8 -*-
 import argparse
-from bumblebee.data.spam_classification.dataloader import create_dataloader
-from bumblebee.models.gpt.gpt_model import GPTModel, generate_text_simple
+from bumblebee.data.instruct_sft.dataprep import download_and_load_instruct_sft_data
+from bumblebee.data.instruct_sft.dataloader import create_dataloader, format_input
+from bumblebee.models.gpt.gpt_model import GPTModel
 from bumblebee.losses.losses import cross_entropy_loss
+import json
+import random
+import os
+import sys
 import tiktoken
 import torch
 from bumblebee.core.infer import generate
 from bumblebee.core.trainer import Trainer
-from bumblebee.models.gpt.gpt_utils import download_and_load_gpt2, load_weights_into_gpt
 from bumblebee.losses.viz_utils import plot_losses
+from bumblebee.models.gpt.gpt_utils import download_and_load_gpt2, load_weights_into_gpt
 from bumblebee.core.utils import export_to_onnx
-from pathlib import Path
-import os
-import sys
 
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Finetune GPT2 to classify SMS spam.")
+        description="Pretrain GPT2 from scratch from a small sample text.")
     # Training params
+    parser.add_argument(
+        "--train_eval_split",
+        default=0.85,
+        type=float,
+        help="How to split between training and validation set. Number included between 0.7 and 0.9.")
     parser.add_argument(
         "--device",
         "-d",
@@ -53,6 +60,21 @@ def parse_args():
         type=float,
         default=0.1,
         help="Weight decay to use during training.")
+
+    # Text eval sample params
+    parser.add_argument(
+        "--temperature",
+        "-t",
+        default=0.0,
+        type=float,
+        help="Temperature for network decoding. 0 temperature is " +
+        " deterministic greedy decoding. Higher temperatures correspond to more variety on network results generation.")
+    parser.add_argument(
+        "--n_tokens",
+        "-n",
+        default=256,
+        type=int,
+        help="Number of tokens to generate per generation.")
     parser.add_argument(
         "--model",
         "-m",
@@ -65,6 +87,15 @@ def parse_args():
             "gpt2-xl"],
         help="Select the gpt2 model to use for running inference.")
     parser.add_argument(
+        "--export_to_onnx",
+        "-e",
+        action="store_true",
+        help="Enables saving gpt2 to onnx format.")
+    parser.add_argument(
+        "--onnx_output_path",
+        "-o",
+        help="Output file where to store the onnx file.")
+    parser.add_argument(
         "--checkpoint_path",
         "-c",
         default=None,
@@ -75,15 +106,15 @@ def parse_args():
         default=None,
         help="Specify the path of a model checkpoint from where resuming training.")
     parser.add_argument(
-        "--export_to_onnx",
-        "-e",
+        "--skip_training",
         action="store_true",
-        help="Enables saving gpt2 to onnx format.")
+        help="Skip training and jump straightaway to evaluation."
+    )
     parser.add_argument(
-        "--onnx_output_path",
-        "-o",
-        help="Output file where to store the onnx file.")
-
+        "--answers_path",
+        default=None,
+        help="Specify the path where to save the answers from the model."
+    )
     args = parser.parse_args()
     return args
 
@@ -102,35 +133,26 @@ gpt_model_configs = {
     "gpt2-xl": {"emb_dim": 1600, "n_layers": 48, "n_heads": 25, "size": "1558M"}
 }
 
-DATASET_BASEDIR = Path(__file__).parent.parent.parent.parent / \
-    "datasets" / "spam_classification"
-TRAIN_DATA_PATH = os.path.join(DATASET_BASEDIR, "train.csv")
-VAL_DATA_PATH = os.path.join(DATASET_BASEDIR, "validation.csv")
-TEST_DATA_PATH = os.path.join(DATASET_BASEDIR, "test.csv")
 
-
-def spam_classification_batch_loss(activation_batch, target_batch, device):
+def pretraining_batch_loss(logits_batch, target_batch, device):
+    logits_batch = logits_batch.to(device)
     target_batch = target_batch.to(device)
-    activation_batch = activation_batch.to(device)
-    # only keep the logits of the last token output by gpt2
-    loss = torch.nn.functional.cross_entropy(
-        activation_batch[:, -1, :], target_batch)
-    return loss
+    return cross_entropy_loss(logits_batch, target_batch.to(device))
 
 
-def classification_accuracy(data_loader, model):
-    correct_samples = 0.0
-    samples = 0.0
-    for input_batch, target_batch in data_loader:
-        input_batch = input_batch.to(device)
-        target_batch = target_batch.to(device)
-        with torch.no_grad():
-            logits = model(input_batch)[:, -1, :]
-        predicted_logits = torch.argmax(logits, dim=-1)
-        samples += logits.shape[0]
-        correct_samples += (predicted_logits == target_batch).sum().item()
-    accuracy = correct_samples / samples
-    return accuracy
+def split_train_test(data, train_eval_split):
+    random.shuffle(data)
+    MIN_TRAIN_EVAL_SPLIT = 0.6
+    MAX_TRAIN_EVAL_SPLIT = 0.9
+    if not train_eval_split <= MAX_TRAIN_EVAL_SPLIT and not train_eval_split > MIN_TRAIN_EVAL_SPLIT:
+        print(
+            f"ERROR! train_eval_split {MIN_TRAIN_EVAL_SPLIT} < {train_eval_split} <= {MAX_TRAIN_EVAL_SPLIT} not verified.")
+        sys.exit(2)
+    split_idx = int(len(data) * train_eval_split)
+    train_data = data[:split_idx]
+    test_data = data[split_idx:]
+
+    return train_data, test_data
 
 
 if __name__ == "__main__":
@@ -146,26 +168,29 @@ if __name__ == "__main__":
     else:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+    data = download_and_load_instruct_sft_data()
+
+    train_data, test_data = split_train_test(data, args.train_eval_split)
+
     tokenizer = tiktoken.get_encoding("gpt2")
 
-    train_dataloader = create_dataloader(csv_file=TRAIN_DATA_PATH,
-                                         tokenizer=tokenizer,
-                                         batch_size=args.batch_size,
-                                         shuffle=True,
-                                         drop_last=True)
-    eval_dataloader = create_dataloader(csv_file=VAL_DATA_PATH,
-                                        tokenizer=tokenizer,
-                                        batch_size=args.batch_size,
-                                        shuffle=False,
-                                        drop_last=False)
-    test_dataloader = create_dataloader(csv_file=TEST_DATA_PATH,
-                                        tokenizer=tokenizer,
-                                        batch_size=args.batch_size,
-                                        shuffle=False,
-                                        drop_last=False)
+    train_dataset = create_dataloader(
+        train_data,
+        tokenizer,
+        context_length=GPT_CONFIG_SHARED["context_length"],
+        batch_size=args.batch_size,
+        shuffle=True,
+        drop_last=True)
+    test_dataset = create_dataloader(
+        test_data,
+        tokenizer,
+        context_length=GPT_CONFIG_SHARED["context_length"],
+        batch_size=args.batch_size,
+        shuffle=False,
+        drop_last=False)
 
-    print(f"Number of batches training dataloader: {len(train_dataloader)}")
-    print(f"Number of batches eval dataloader: {len(test_dataloader)}")
+    print(f"Number of batches training dataloader: {len(train_dataset)}")
+    print(f"Number of batches eval dataloader: {len(test_dataset)}")
 
     PRETRAINED_GPT_MODEL_CONFIG = GPT_CONFIG_SHARED.copy()
     PRETRAINED_GPT_MODEL_CONFIG.update(gpt_model_configs[args.model])
@@ -191,34 +216,22 @@ if __name__ == "__main__":
     else:
         load_weights_into_gpt(model, params)
     model.to(device)
-    # Freezing the model layers of the pretrained transformer for finetuning
-    for param in model.parameters():
-        param.require_grad = False
-    for param in model.trf_blocks[-1].parameters():
-        param.requires_grad = True
+    if not args.skip_training:
+        optimizer = torch.optim.AdamW(
+            model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
 
-    num_embeddings = model.output_linear.weight.shape[1]
-    NUM_CLASSES = 2
-    model.output_linear = torch.nn.Linear(
-        num_embeddings, NUM_CLASSES, device=device)
-    optimizer = torch.optim.AdamW(
-        model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+        trainer = Trainer(
+            model,
+            optimizer,
+            train_dataset,
+            test_dataset,
+            pretraining_batch_loss,
+            args.num_epochs,
+            device,
+            eval_freq=args.eval_freq)
+        train_losses, eval_losses = trainer.train()
 
-    trainer = Trainer(
-        model,
-        optimizer,
-        train_dataloader,
-        eval_dataloader,
-        spam_classification_batch_loss,
-        args.num_epochs,
-        device,
-        eval_freq=args.eval_freq)
-    train_losses, eval_losses = trainer.train()
-
-    accuracy = classification_accuracy(test_dataloader, model)
-    print(f"Testing accuracy: {accuracy:.4f}")
-
-    plot_losses(train_losses, eval_losses, args.eval_freq)
+        plot_losses(train_losses, eval_losses, args.eval_freq)
 
     if args.export_to_onnx:
         export_to_onnx(
@@ -233,3 +246,24 @@ if __name__ == "__main__":
         if not os.path.exists(dirname):
             os.makedirs(dirname)
         torch.save(model.state_dict(), args.checkpoint_path)
+
+    model.eval()
+    results = []
+    for entry in test_data:
+        RESPONSE_BEGIN = "\n\n### Response:\n"
+        input_prompt = "{}{}".format(format_input(entry), RESPONSE_BEGIN)
+        response = generate(model, tokenizer, device,
+                            start_context=input_prompt,
+                            max_new_tokens=args.n_tokens,
+                            temperature=args.temperature)
+        response_text = response[len(input_prompt):].replace(
+            "### Response:", "").strip()
+        print(f"Input prompt: {input_prompt}\n\n\n")
+        print(f"Response: {response_text}\n\n\n")
+        entry["model"] = response_text
+        results.append(entry)
+    if args.answers_path:
+        dirname = os.path.dirname(args.answers_path)
+        os.makedirs(dirname, exist_ok=True)
+        with open(args.answers_path, "w") as f:
+            json.dump(results, f, sort_keys=True, indent=4, ensure_ascii=False)

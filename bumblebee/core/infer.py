@@ -47,7 +47,8 @@ def generate(
         device,
         start_context,
         max_new_tokens,
-        temperature=1.0):
+        temperature=1.0,
+        eos_token=50256):
     context_size = model.get_context_size()
     encoded = text_to_token_ids(start_context, tokenizer).to(device)
     input_tokens = encoded
@@ -61,7 +62,10 @@ def generate(
         else:
             next_id = predict_next_token_greedy(model, input_tokens)
         input_tokens = torch.cat((input_tokens, next_id), dim=-1)
+        if next_id == eos_token:
+            break
         next_ids = torch.cat((next_ids, next_id), dim=-1)
+
     response = torch.cat((encoded, next_ids), dim=-1)
     decoded_response = token_ids_to_text(response, tokenizer)
     return decoded_response

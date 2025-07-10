@@ -51,7 +51,15 @@ class Trainer:
 
     def train(self):
         num_iter_per_epoch = len(self._train_loader)
+
+        print(f"Running eval for epoch {0}.")
+        train_loss, eval_loss = self.evaluate()
+        print(f"Train loss: {train_loss} - Eval loss: {eval_loss}.")
+        self.train_losses.append(train_loss.to("cpu").item())
+        self.eval_losses.append(eval_loss.to("cpu").item())
+
         for epoch in range(self._num_epochs):
+
             print(
                 f"Running training for epoch {epoch + 1} / {self._num_epochs} .")
             self._model.train()
