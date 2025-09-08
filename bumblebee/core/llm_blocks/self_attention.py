@@ -3,6 +3,9 @@
 
 import torch
 
+from normalization_blocks import RMSNormalization, LayerNormalization
+from positional_encodings import apply_rope
+
 inputs = torch.tensor(
     [[0.43, 0.15, 0.89],  # Your    (x^1)
      [0.55, 0.87, 0.66],  # journey (x^2)
@@ -129,6 +132,71 @@ class MultiHeadSelfAttention(torch.nn.Module):
         return context_vec
 
 
+class GroupedQueryAttention(torch.nn.Module):
+    def __init__(
+            self,
+            d_in,
+            d_out,
+            n_kv_groups,
+            n_heads,
+            context_length,
+            dropout,
+            qkv_bias=False,
+            qwen_compatible=True):
+        super(GroupedQueryAttention, self).__init__()
+        self.n_heads = n_heads
+        self.head_dim = d_out // n_heads
+        self.n_kv_groups = n_kv_groups
+        if d_out % n_heads != 0:
+            raise Exception(f"In GroupedQueryAttention d_out {d_out} must be divisible by n_heads {n_heads}.")
+        if d_out % n_kv_groups != 0:
+            raise Exception(f"In GroupedQueryAttention d_out {d_out} must be divisible by n_kv_groups {n_kv_groups}.")
+        self.d_out = d_out
+        self.W_query = torch.nn.Linear(d_in, d_out, bias=qkv_bias)
+        self.W_key = torch.nn.Linear(d_in, self.head_dim * n_kv_groups, bias=qkv_bias)
+        self.W_value = torch.nn.Linear(d_in, self.head_dim * n_kv_groups, bias=qkv_bias)
+        self.dropout = torch.nn.Dropout(dropout)
+        self.register_buffer(
+            'mask',
+            torch.triu(torch.ones((context_length, context_length)),
+                       diagonal=1)
+        )
+        self.out_projection = torch.nn.Linear(d_out, d_out)
+        self.norm_q = RMSNormalization(self.head_dim, qwen_compatible=qwen_compatible)
+        self.norm_k = RMSNormalization(self.head_dim, qwen_compatible=qwen_compatible)
+
+
+    def forward(self, x, cos, sin):
+        b, num_tokens, d_out = x.shape
+
+        w_query = self.W_query(x).view(b, num_tokens, self.n_heads, self.head_dim)
+        w_query = self.norm_q(w_query)
+        w_query = w_query.transpose(1,2)
+        w_query = apply_rope(x, cos, sin)
+
+        w_key = self.W_key(x).view(b, num_tokens, self.n_kv_groups, self.head_dim)
+        w_key = self.norm_k(w_key)
+        w_key = w_key.transpose(1,2)
+
+        w_value = self.W_value(x).view(b, num_tokens, self.n_kv_groups, self.head_dim)
+        w_value = w_value.transpose(1,2)
+
+        w_key = torch.repeat_interleave(w_key, self.n_heads // self.n_kv_groups, dim=1)
+        w_value = torch.repeat_interleave(w_value, self.n_heads // self.n_kv_groups, dim=1)
+
+        attn_scores = torch.matmul(w_query, w_key.transpose(2,3))
+        attn_scores = attn_scores.masked_fill(
+            self.mask[:num_tokens, :num_tokens].bool(), -torch.inf)
+        attn_scores = torch.nn.functional.softmax(attn_scores  / self.head_dim**0.5, dim=3)
+        attn_scores = self.dropout(attn_scores)
+
+        grouped_attn = torch.matmul(attn_scores, w_value).transpose(1,2)
+
+        grouped_attn = grouped_attn.contiguous().view(b, num_tokens, d_out)
+
+        return self.out_projection(grouped_attn)
+
+
 if __name__ == "__main__":
     outputs = simpliflied_self_attention(inputs)
     print(outputs)
@@ -160,9 +228,22 @@ if __name__ == "__main__":
 
     inputs = inputs.view(1, inputs.shape[0], inputs.shape[1])
     torch.manual_seed(1254)
-    D_OUT = 4
-    N_HEADS = 2
+    D_IN = 3
+    D_OUT = 3
+    N_HEADS = 3
     CONTEXT_LENGTH = inputs.shape[1]
     mha = MultiHeadSelfAttention(D_IN, D_OUT, N_HEADS, CONTEXT_LENGTH, 0.0)
+    outputs = mha(inputs)
+    print(outputs)
+
+    torch.manual_seed(1254)
+    D_IN = 3
+    D_OUT = 3
+    N_HEADS = 3
+    CONTEXT_LENGTH = inputs.shape[1]
+    mha = GroupedQueryAttention(d_in=D_IN, d_out=D_OUT, n_kv_groups=1,
+                                n_heads = N_HEADS,
+                                context_length = CONTEXT_LENGTH,
+                                dropout = 0.0)
     outputs = mha(inputs)
     print(outputs)
