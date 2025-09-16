@@ -4,7 +4,7 @@
 import torch
 import torch.nn as nn
 from bumblebee.core.llm_blocks.self_attention import MultiHeadSelfAttention, GroupedQueryAttention
-from normalization_blocks import RMSNormalization, LayerNormalization
+from bumblebee.core.llm_blocks.normalization_blocks import RMSNormalization, LayerNormalization
 
 class GELU(nn.Module):
     def __init__(self):
@@ -99,10 +99,10 @@ class Qwen3TransformerBlock(nn.Module):
                               emb_mul=ff_embeddings_multiplier)
         self.dropout_ff = nn.Dropout(p=dropout_rate)
 
-    def forward(self, x, cos, sin):
+    def forward(self, x, mask, cos, sin):
         # Multihead self attention sub block
         x_norm = self.layer_norm_mha(x)
-        x_mha = self.mh_self_attn(x_norm, cos, sin)
+        x_mha = self.mh_self_attn(x_norm, mask, cos, sin)
         x_mha = self.dropout_mha(x_mha)
         x1 = x + x_mha  # skip connection
 

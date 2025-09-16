@@ -3,8 +3,8 @@
 
 import torch
 
-from normalization_blocks import RMSNormalization, LayerNormalization
-from positional_encodings import apply_rope
+from bumblebee.core.llm_blocks.normalization_blocks import RMSNormalization, LayerNormalization
+from bumblebee.core.llm_blocks.positional_encodings import apply_rope
 
 inputs = torch.tensor(
     [[0.43, 0.15, 0.89],  # Your    (x^1)
@@ -156,23 +156,18 @@ class GroupedQueryAttention(torch.nn.Module):
         self.W_key = torch.nn.Linear(d_in, self.head_dim * n_kv_groups, bias=qkv_bias)
         self.W_value = torch.nn.Linear(d_in, self.head_dim * n_kv_groups, bias=qkv_bias)
         self.dropout = torch.nn.Dropout(dropout)
-        self.register_buffer(
-            'mask',
-            torch.triu(torch.ones((context_length, context_length)),
-                       diagonal=1)
-        )
         self.out_projection = torch.nn.Linear(d_out, d_out)
         self.norm_q = RMSNormalization(self.head_dim, qwen_compatible=qwen_compatible)
         self.norm_k = RMSNormalization(self.head_dim, qwen_compatible=qwen_compatible)
 
 
-    def forward(self, x, cos, sin):
+    def forward(self, x, mask, cos, sin):
         b, num_tokens, d_out = x.shape
 
         w_query = self.W_query(x).view(b, num_tokens, self.n_heads, self.head_dim)
         w_query = self.norm_q(w_query)
         w_query = w_query.transpose(1,2)
-        w_query = apply_rope(x, cos, sin)
+        w_query = apply_rope(x, cos, sin, dtype=x.dtype)
 
         w_key = self.W_key(x).view(b, num_tokens, self.n_kv_groups, self.head_dim)
         w_key = self.norm_k(w_key)
@@ -186,7 +181,7 @@ class GroupedQueryAttention(torch.nn.Module):
 
         attn_scores = torch.matmul(w_query, w_key.transpose(2,3))
         attn_scores = attn_scores.masked_fill(
-            self.mask[:num_tokens, :num_tokens].bool(), -torch.inf)
+            mask[:num_tokens, :num_tokens].bool(), -torch.inf)
         attn_scores = torch.nn.functional.softmax(attn_scores  / self.head_dim**0.5, dim=3)
         attn_scores = self.dropout(attn_scores)
 
